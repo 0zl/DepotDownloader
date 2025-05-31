@@ -1,16 +1,6 @@
 name: .NET Core CI
 
 on:
-  push:
-    paths-ignore:
-      - '.github/*'
-      - '.github/*_TEMPLATE/**'
-      - '*.md'
-  pull_request:
-    paths-ignore:
-      - '.github/*'
-      - '.github/*_TEMPLATE/**'
-      - '*.md'
   workflow_dispatch:
 
 jobs:
