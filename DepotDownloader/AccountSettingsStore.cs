@@ -28,6 +28,7 @@ namespace DepotDownloader
         public Dictionary<string, string> GuardData { get; private set; }
 
         string FileName;
+        static bool UseIsolatedStorage = true;
 
         AccountSettingsStore()
         {
@@ -46,26 +47,56 @@ namespace DepotDownloader
 
         public static void LoadFromFile(string filename)
         {
+            LoadFromFile(filename, true);
+        }
+
+        public static void LoadFromFile(string filename, bool useIsolatedStorage)
+        {
+            UseIsolatedStorage = useIsolatedStorage;
             if (Loaded)
                 throw new Exception("Config already loaded");
 
-            if (IsolatedStorage.FileExists(filename))
+            if (UseIsolatedStorage)
             {
-                try
+                if (IsolatedStorage.FileExists(filename))
                 {
-                    using var fs = IsolatedStorage.OpenFile(filename, FileMode.Open, FileAccess.Read);
-                    using var ds = new DeflateStream(fs, CompressionMode.Decompress);
-                    Instance = Serializer.Deserialize<AccountSettingsStore>(ds);
+                    try
+                    {
+                        using var fs = IsolatedStorage.OpenFile(filename, FileMode.Open, FileAccess.Read);
+                        using var ds = new DeflateStream(fs, CompressionMode.Decompress);
+                        Instance = Serializer.Deserialize<AccountSettingsStore>(ds);
+                    }
+                    catch (IOException ex)
+                    {
+                        Console.WriteLine("Failed to load account settings from IsolatedStorage: {0}", ex.Message);
+                        Instance = new AccountSettingsStore();
+                    }
                 }
-                catch (IOException ex)
+                else
                 {
-                    Console.WriteLine("Failed to load account settings: {0}", ex.Message);
                     Instance = new AccountSettingsStore();
                 }
             }
             else
             {
-                Instance = new AccountSettingsStore();
+                if (File.Exists(filename))
+                {
+                    try
+                    {
+                        using var fs = new FileStream(filename, FileMode.Open, FileAccess.Read);
+                        using var ds = new DeflateStream(fs, CompressionMode.Decompress);
+                        Instance = Serializer.Deserialize<AccountSettingsStore>(ds);
+                    }
+                    catch (IOException ex)
+                    {
+                        Console.WriteLine("Failed to load account settings from file: {0}", ex.Message);
+                        Instance = new AccountSettingsStore();
+                    }
+                }
+                else
+                {
+                    Instance = new AccountSettingsStore();
+                }
             }
 
             Instance.FileName = filename;
@@ -78,9 +109,21 @@ namespace DepotDownloader
 
             try
             {
-                using var fs = IsolatedStorage.OpenFile(Instance.FileName, FileMode.Create, FileAccess.Write);
-                using var ds = new DeflateStream(fs, CompressionMode.Compress);
-                Serializer.Serialize(ds, Instance);
+                Stream fs;
+                if (UseIsolatedStorage)
+                {
+                    fs = IsolatedStorage.OpenFile(Instance.FileName, FileMode.Create, FileAccess.Write);
+                }
+                else
+                {
+                    fs = new FileStream(Instance.FileName, FileMode.Create, FileAccess.Write);
+                }
+
+                using (fs)
+                using (var ds = new DeflateStream(fs, CompressionMode.Compress))
+                {
+                    Serializer.Serialize(ds, Instance);
+                }
             }
             catch (IOException ex)
             {

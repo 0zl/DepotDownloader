@@ -37,8 +37,17 @@ namespace DepotDownloader
             Ansi.Init();
 
             DebugLog.Enabled = false;
+            consumedArgs = new bool[args.Length];
 
-            AccountSettingsStore.LoadFromFile("account.config");
+            var accountConfigPath = GetParameter<string>(args, "-account-config-path");
+            if (string.IsNullOrEmpty(accountConfigPath))
+            {
+                AccountSettingsStore.LoadFromFile("account.config");
+            }
+            else
+            {
+                AccountSettingsStore.LoadFromFile(accountConfigPath, useIsolatedStorage: false);
+            }
 
             #region Common Options
 
@@ -48,8 +57,6 @@ namespace DepotDownloader
                 PrintVersion(true);
                 return 0;
             }
-
-            consumedArgs = new bool[args.Length];
 
             if (HasParameter(args, "-debug"))
             {
@@ -508,6 +515,8 @@ namespace DepotDownloader
             Console.WriteLine("  -all-languages           - download all language-specific depots when -app is used.");
             Console.WriteLine("  -language <lang>         - the language for which to download the game (default: english)");
             Console.WriteLine("  -lowviolence             - download low violence depots when -app is used.");
+            Console.WriteLine();
+            Console.WriteLine("  -account-config-path <path> - path to the account.config file. Uses IsolatedStorage if not specified.");
             Console.WriteLine();
             Console.WriteLine("  -ugc <#>                 - the UGC ID to download.");
             Console.WriteLine("  -pubfile <#>             - the PublishedFileId to download. (Will automatically resolve to UGC id)");
