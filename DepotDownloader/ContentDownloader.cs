@@ -47,19 +47,22 @@ namespace DepotDownloader
             public byte[] DepotKey { get; } = depotKey;
         }
 
-        static bool CreateDirectories(uint depotId, uint depotVersion, out string installDir)
+        static bool CreateDirectories(uint id, uint versionOrZero, out string installDir, ulong? publishedFileId = null)
         {
             installDir = null;
             try
             {
+                string topLevelDirName = id.ToString();
+                string secondLevelDirName = publishedFileId?.ToString() ?? versionOrZero.ToString();
+
                 if (string.IsNullOrWhiteSpace(Config.InstallDirectory))
                 {
                     Directory.CreateDirectory(DEFAULT_DOWNLOAD_DIR);
 
-                    var depotPath = Path.Combine(DEFAULT_DOWNLOAD_DIR, depotId.ToString());
-                    Directory.CreateDirectory(depotPath);
+                    var topLevelPath = Path.Combine(DEFAULT_DOWNLOAD_DIR, topLevelDirName);
+                    Directory.CreateDirectory(topLevelPath);
 
-                    installDir = Path.Combine(depotPath, depotVersion.ToString());
+                    installDir = Path.Combine(topLevelPath, secondLevelDirName);
                     Directory.CreateDirectory(installDir);
 
                     Directory.CreateDirectory(Path.Combine(installDir, CONFIG_DIR));
@@ -67,9 +70,13 @@ namespace DepotDownloader
                 }
                 else
                 {
-                    Directory.CreateDirectory(Config.InstallDirectory);
+                    Directory.CreateDirectory(Config.InstallDirectory); // Ensure base custom directory exists
 
-                    installDir = Config.InstallDirectory;
+                    var topLevelPath = Path.Combine(Config.InstallDirectory, topLevelDirName);
+                    Directory.CreateDirectory(topLevelPath);
+
+                    installDir = Path.Combine(topLevelPath, secondLevelDirName);
+                    Directory.CreateDirectory(installDir);
 
                     Directory.CreateDirectory(Path.Combine(installDir, CONFIG_DIR));
                     Directory.CreateDirectory(Path.Combine(installDir, STAGING_DIR));
@@ -378,11 +385,11 @@ namespace DepotDownloader
 
             if (!string.IsNullOrEmpty(details?.file_url))
             {
-                await DownloadWebFile(appId, details.filename, details.file_url);
+                await DownloadWebFile(appId, publishedFileId, details.filename, details.file_url);
             }
             else if (details?.hcontent_file > 0)
             {
-                await DownloadAppAsync(appId, new List<(uint, ulong)> { (appId, details.hcontent_file) }, DEFAULT_BRANCH, null, null, null, false, true);
+                await DownloadAppAsync(appId, new List<(uint, ulong)> { (appId, details.hcontent_file) }, DEFAULT_BRANCH, null, null, null, false, true, publishedFileId);
             }
             else
             {
@@ -405,7 +412,7 @@ namespace DepotDownloader
 
             if (!string.IsNullOrEmpty(details?.URL))
             {
-                await DownloadWebFile(appId, details.FileName, details.URL);
+                await DownloadWebFile(appId, ugcId, details.FileName, details.URL);
             }
             else
             {
@@ -413,9 +420,9 @@ namespace DepotDownloader
             }
         }
 
-        private static async Task DownloadWebFile(uint appId, string fileName, string url)
+        private static async Task DownloadWebFile(uint appId, ulong publishedFileId, string fileName, string url)
         {
-            if (!CreateDirectories(appId, 0, out var installDir))
+            if (!CreateDirectories(appId, 0, out var installDir, publishedFileId: publishedFileId))
             {
                 Console.WriteLine("Error: Unable to create install directories!");
                 return;
@@ -444,7 +451,7 @@ namespace DepotDownloader
             File.Move(fileStagingPath, fileFinalPath);
         }
 
-        public static async Task DownloadAppAsync(uint appId, List<(uint depotId, ulong manifestId)> depotManifestIds, string branch, string os, string arch, string language, bool lv, bool isUgc)
+        public static async Task DownloadAppAsync(uint appId, List<(uint depotId, ulong manifestId)> depotManifestIds, string branch, string os, string arch, string language, bool lv, bool isUgc, ulong? activePublishedFileId = null)
         {
             cdnPool = new CDNClientPool(steam3, appId);
 
@@ -572,7 +579,7 @@ namespace DepotDownloader
 
             foreach (var (depotId, manifestId) in depotManifestIds)
             {
-                var info = await GetDepotInfo(depotId, appId, manifestId, branch);
+                var info = await GetDepotInfo(depotId, appId, manifestId, branch, activePublishedFileId);
                 if (info != null)
                 {
                     infos.Add(info);
@@ -592,7 +599,7 @@ namespace DepotDownloader
             }
         }
 
-        static async Task<DepotDownloadInfo> GetDepotInfo(uint depotId, uint appId, ulong manifestId, string branch)
+        static async Task<DepotDownloadInfo> GetDepotInfo(uint depotId, uint appId, ulong manifestId, string branch, ulong? activePublishedFileId = null)
         {
             if (steam3 != null && appId != INVALID_APP_ID)
             {
@@ -632,7 +639,10 @@ namespace DepotDownloader
 
             var uVersion = GetSteam3AppBuildNumber(appId, branch);
 
-            if (!CreateDirectories(depotId, uVersion, out var installDir))
+            uint directoryPrimaryId = activePublishedFileId.HasValue ? appId : depotId;
+            uint directoryVersionEquivalent = uVersion;
+
+            if (!CreateDirectories(directoryPrimaryId, directoryVersionEquivalent, out var installDir, publishedFileId: activePublishedFileId))
             {
                 Console.WriteLine("Error: Unable to create install directories!");
                 return null;
