@@ -112,7 +112,9 @@ namespace DepotDownloader
                 return false;
 
             IEnumerable<uint> licenseQuery;
-            if (steam3.steamUser.SteamID.AccountType == EAccountType.AnonUser)
+            bool isAnonUser = steam3.steamUser.SteamID.AccountType == EAccountType.AnonUser;
+
+            if (isAnonUser)
             {
                 licenseQuery = [17906];
             }
@@ -121,24 +123,59 @@ namespace DepotDownloader
                 licenseQuery = steam3.Licenses.Select(x => x.PackageID).Distinct();
             }
 
-            await steam3.RequestPackageInfo(licenseQuery);
-
-            foreach (var license in licenseQuery)
+            // Ensure package information for the initial query is loaded, if there's anything to query.
+            if (licenseQuery.Any())
             {
-                if (steam3.PackageInfo.TryGetValue(license, out var package) && package != null)
-                {
-                    if (package.KeyValues["appids"].Children.Any(child => child.AsUnsignedInteger() == depotId))
-                        return true;
+                await steam3.RequestPackageInfo(licenseQuery);
+            }
 
-                    if (package.KeyValues["depotids"].Children.Any(child => child.AsUnsignedInteger() == depotId))
+            // Check licenses based on user type (own licenses or anonymous package)
+            foreach (var licenseId in licenseQuery)
+            {
+                if (steam3.PackageInfo.TryGetValue(licenseId, out var package) && package != null)
+                {
+                    if (package.KeyValues["appids"].Children.Any(child => child.AsUnsignedInteger() == depotId) ||
+                        package.KeyValues["depotids"].Children.Any(child => child.AsUnsignedInteger() == depotId))
+                    {
                         return true;
+                    }
                 }
             }
 
             // Check if this app is free to download without a license
-            var info = GetSteam3AppSection(appId, EAppInfoSection.Common);
-            if (info != null && info["FreeToDownload"].AsBoolean())
+            var appCommonInfo = GetSteam3AppSection(appId, EAppInfoSection.Common);
+            if (appCommonInfo != null && appCommonInfo["FreeToDownload"].AsBoolean())
+            {
                 return true;
+            }
+
+            // If logged in (not anonymous) and all previous checks (own licenses, app's FreeToDownload flag) failed,
+            // then, as a final step, check if this specific depotId would be covered by the general anonymous access package (17906).
+            if (!isAnonUser)
+            {
+                // Ensure package info for 17906 is loaded if not already.
+                // steam3.PackageInfo is populated by RequestPackageInfo.
+                // If the user is logged in, licenseQuery would have been their licenses, not 17906 (unless they own it, unlikely).
+                // So, we likely need to fetch info for 17906 specifically here.
+                bool package17906InfoAlreadyAvailable = steam3.PackageInfo.ContainsKey(17906);
+
+                if (!package17906InfoAlreadyAvailable)
+                {
+                    // Request info specifically for the anonymous package.
+                    await steam3.RequestPackageInfo([17906]);
+                }
+
+                // Now check package 17906
+                if (steam3.PackageInfo.TryGetValue(17906, out var anonPackage) && anonPackage != null)
+                {
+                    if (anonPackage.KeyValues["appids"].Children.Any(child => child.AsUnsignedInteger() == depotId) ||
+                        anonPackage.KeyValues["depotids"].Children.Any(child => child.AsUnsignedInteger() == depotId))
+                    {
+                        Console.WriteLine($"Note: Access for depot {depotId} (app context {appId}) granted via anonymous access package (17906) as fallback for logged-in user.");
+                        return true;
+                    }
+                }
+            }
 
             return false;
         }
