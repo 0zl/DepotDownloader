@@ -435,13 +435,39 @@ namespace DepotDownloader
             Directory.CreateDirectory(Path.GetDirectoryName(fileFinalPath));
             Directory.CreateDirectory(Path.GetDirectoryName(fileStagingPath));
 
-            using (var file = File.OpenWrite(fileStagingPath))
-            using (var client = HttpClientFactory.CreateHttpClient())
+            var retries = 0;
+            var downloadSuccessful = false;
+
+            do
             {
-                Console.WriteLine("Downloading {0}", fileName);
-                var responseStream = await client.GetStreamAsync(url);
-                await responseStream.CopyToAsync(file);
-            }
+                try
+                {
+                    using (var file = File.OpenWrite(fileStagingPath))
+                    using (var client = HttpClientFactory.CreateHttpClient())
+                    {
+                        Console.WriteLine("Downloading {0}", fileName);
+                        var responseStream = await client.GetStreamAsync(url);
+                        await responseStream.CopyToAsync(file);
+                    }
+                    downloadSuccessful = true;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error downloading file {fileName}: {ex.Message}");
+                    retries++;
+                    if (retries >= Config.MaxRetries)
+                    {
+                        Console.WriteLine($"Failed to download file {fileName} after {Config.MaxRetries} retries. Aborting.");
+                        return;
+                    }
+                    Console.WriteLine($"Retrying download of file {fileName} (attempt {retries}/{Config.MaxRetries})");
+                    if (File.Exists(fileStagingPath))
+                    {
+                        File.Delete(fileStagingPath);
+                    }
+                    await Task.Delay(1000 * retries);
+                }
+            } while (!downloadSuccessful);
 
             if (File.Exists(fileFinalPath))
             {
@@ -796,6 +822,7 @@ namespace DepotDownloader
 
                     ulong manifestRequestCode = 0;
                     var manifestRequestCodeExpiration = DateTime.MinValue;
+                    var retries = 0;
 
                     do
                     {
@@ -892,9 +919,22 @@ namespace DepotDownloader
                             cdnPool.ReturnBrokenConnection(connection);
                             Console.WriteLine("Encountered error downloading manifest for depot {0} {1}: {2}", depot.DepotId, depot.ManifestId, e.Message);
                         }
-                    } while (newManifest == null);
 
-                    if (newManifest == null)
+                        if (newManifest == null)
+                        {
+                            retries++;
+                            if (retries >= Config.MaxRetries)
+                            {
+                                Console.WriteLine($"Failed to download manifest for depot {depot.DepotId} after {Config.MaxRetries} retries. Aborting.");
+                                cts.Cancel();
+                                break;
+                            }
+                            Console.WriteLine($"Retrying download of manifest for depot {depot.DepotId} (attempt {retries}/{Config.MaxRetries})");
+                            await Task.Delay(1000 * retries); // Exponential backoff
+                        }
+                    } while (newManifest == null && !cts.IsCancellationRequested);
+
+                    if (newManifest == null && !cts.IsCancellationRequested)
                     {
                         Console.WriteLine("\nUnable to download manifest {0} for depot {1}", depot.ManifestId, depot.DepotId);
                         cts.Cancel();
@@ -1243,6 +1283,7 @@ namespace DepotDownloader
             var chunkID = Convert.ToHexString(chunk.ChunkID).ToLowerInvariant();
 
             var written = 0;
+            var retries = 0;
             var chunkBuffer = ArrayPool<byte>.Shared.Rent((int)chunk.UncompressedLength);
 
             try
@@ -1316,9 +1357,22 @@ namespace DepotDownloader
                         cdnPool.ReturnBrokenConnection(connection);
                         Console.WriteLine("Encountered unexpected error downloading chunk {0}: {1}", chunkID, e.Message);
                     }
+
+                    if (written == 0)
+                    {
+                        retries++;
+                        if (retries >= Config.MaxRetries)
+                        {
+                            Console.WriteLine($"Failed to download chunk {chunkID} after {Config.MaxRetries} retries. Aborting.");
+                            cts.Cancel();
+                            break;
+                        }
+                        Console.WriteLine($"Retrying download of chunk {chunkID} (attempt {retries}/{Config.MaxRetries})");
+                        await Task.Delay(1000 * retries); // Exponential backoff
+                    }
                 } while (written == 0);
 
-                if (written == 0)
+                if (written == 0 && !cts.IsCancellationRequested)
                 {
                     Console.WriteLine("Failed to find any server with chunk {0} for depot {1}. Aborting.", chunkID, depot.DepotId);
                     cts.Cancel();
