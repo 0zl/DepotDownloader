@@ -52,8 +52,8 @@ namespace DepotDownloader
             installDir = null;
             try
             {
-                string topLevelDirName = id.ToString();
-                string secondLevelDirName = publishedFileId?.ToString() ?? versionOrZero.ToString();
+                var topLevelDirName = id.ToString();
+                var secondLevelDirName = publishedFileId?.ToString() ?? versionOrZero.ToString();
 
                 if (string.IsNullOrWhiteSpace(Config.InstallDirectory))
                 {
@@ -119,7 +119,7 @@ namespace DepotDownloader
                 return false;
 
             IEnumerable<uint> licenseQuery;
-            bool isAnonUser = steam3.steamUser.SteamID.AccountType == EAccountType.AnonUser;
+            var isAnonUser = steam3.steamUser.SteamID.AccountType == EAccountType.AnonUser;
 
             if (isAnonUser)
             {
@@ -164,7 +164,7 @@ namespace DepotDownloader
                 // steam3.PackageInfo is populated by RequestPackageInfo.
                 // If the user is logged in, licenseQuery would have been their licenses, not 17906 (unless they own it, unlikely).
                 // So, we likely need to fetch info for 17906 specifically here.
-                bool package17906InfoAlreadyAvailable = steam3.PackageInfo.ContainsKey(17906);
+                var package17906InfoAlreadyAvailable = steam3.PackageInfo.ContainsKey(17906);
 
                 if (!package17906InfoAlreadyAvailable)
                 {
@@ -639,8 +639,8 @@ namespace DepotDownloader
 
             var uVersion = GetSteam3AppBuildNumber(appId, branch);
 
-            uint directoryPrimaryId = activePublishedFileId.HasValue ? appId : depotId;
-            uint directoryVersionEquivalent = uVersion;
+            var directoryPrimaryId = activePublishedFileId.HasValue ? appId : depotId;
+            var directoryVersionEquivalent = uVersion;
 
             if (!CreateDirectories(directoryPrimaryId, directoryVersionEquivalent, out var installDir, publishedFileId: activePublishedFileId))
             {
